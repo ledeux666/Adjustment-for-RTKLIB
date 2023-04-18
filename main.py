@@ -30,6 +30,7 @@ class MainWindow(QMainWindow):
         self.unique_points = None # Вектор уникальных наименований пунктов
         self.approx = None # Массив с уникальными наименованиями пунктов и их приближенными координтами
         self.solid_approx = None # Массив approx с заменой координат опорных точек
+        self.rover_approx = None #
 
         # Установка названия главного окна приложения и изменение его размера
         self.setWindowTitle('Adjustment for RTKLIB')
@@ -125,7 +126,8 @@ class MainWindow(QMainWindow):
                     last_line = lines[-1].strip()
                     sll = last_line.split()  # split_last_line
                     measure = [sll[2], sll[3], sll[4]]
-                    covariation = [sll[7], sll[8], sll[9], sll[10], sll[11], sll[12]]  # TODO
+                    # TODO Реализовать ковариацию
+                    covariation = [sll[7], sll[8], sll[9], sll[10], sll[11], sll[12]]
 
                     # Получение названий БС и ровера
                     for i in range(2):
@@ -197,15 +199,16 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem("")
                 self.table.setItem(row, col, item)
 
-        print(self.approx)
-
     def adjustment(self):
         """Метод, производящий уравнивание геодезической сети"""
+
+        self.solid_approx = np.copy(self.approx)
+        self.rover_approx = []
+
         # Цикл заменяет приближенные координаты опорных (отмеченных) пунктов в approx на введеные пользователем XYZ
         for i in range(self.unique_points.shape[0]):
 
             checkbox = self.table.cellWidget(i, 1)
-            self.solid_approx = self.approx
 
             # Проверка наличия чекбокса и его состояния
             if isinstance(checkbox, QCheckBox) and checkbox.isChecked():
@@ -214,12 +217,34 @@ class MainWindow(QMainWindow):
                 items = [self.table.item(i, 2), self.table.item(i, 3), self.table.item(i, 4)]
                 solid_pos = [items[0].text(), items[1].text(), items[2].text()]
 
-                # Замена координат
+                # Замена значений в векторе приближенных координат всех пунктов и формирование вектора координат
+                # только роверов
                 for j in range(3):
                     self.solid_approx[3 * i + j, 1] = solid_pos[j]
 
+        # Создание матрицы с названий и приближенных координат только пунктов роверов
+        # TODO Есть проблема в том, что если приближенные и опорные координаты совпадут, то строка не будет удалена
+        for i in range(self.approx.shape[0]):
+
+            if self.approx[i, 1] == self.solid_approx[i, 1]:
+                self.rover_approx.append(self.approx[i])
+
+        self.rover_approx = np.array(self.rover_approx)
 
         print(self.approx)
+        print(self.solid_approx)
+        print(self.rover_approx)
+
+
+        bl_comp = []
+
+        # Формирование вектора с компонентами БЛ на основе массива входных данных
+        for i in range(self.input_array.shape[0]):
+            bl_comp.append(float(self.input_array[i, 3]) - float(self.input_array[i, 1]))
+
+        bl_comp = np.array(bl_comp)
+        # print(bl_comp)
+
 
 
 if __name__ == "__main__":
