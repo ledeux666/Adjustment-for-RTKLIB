@@ -25,12 +25,17 @@ class MainWindow(QMainWindow):
         """Конструктор класса MainWindow (главного окна/виджета приложения)"""
         super().__init__()
 
-        # Инициализация необходимых переменных
+        # Инициализация необходимых массивов и векторов
         self.input_array = None # Массив с входными данными из файлов
         self.unique_points = None # Вектор уникальных наименований пунктов
         self.approx = None # Массив с уникальными наименованиями пунктов и их приближенными координтами
-        self.solid_approx = None # Массив approx с заменой координат опорных точек
-        self.rover_approx = None #
+        self.all_approx = None # Массив approx с заменой координат опорных точек
+        self.find_approx = None # Массив approx без опорных точек
+
+        # Инициализация необходимых переменных
+        self.num_bl = None # Число базовых линий
+        self.num_points = None # Число пунктов
+        self.num_find = None # Число искомых пунктов
 
         # Установка названия главного окна приложения и изменение его размера
         self.setWindowTitle('Adjustment for RTKLIB')
@@ -146,6 +151,7 @@ class MainWindow(QMainWindow):
 
             # Вектор уникальных названий пунктов (список всех пунктов)
             self.unique_points = np.unique(self.input_array[:, [0, 2]]).reshape(-1, 1)
+            self.num_points = self.unique_points.shape[0]
             unique_pos = []
 
             # Вычленение приближенных координат всех пунктов (без повторов)
@@ -167,12 +173,13 @@ class MainWindow(QMainWindow):
             unique_pos = np.array(unique_pos)
             approx = []  # Пустой массив для записи уникальных имен пунктов и их приближенных координат
 
-            # Соединение данных из unique_points и unique_points в матрице approx
+            # Соединение данных из unique_points и unique_pos в матрице approx
             for i in range(self.unique_points.shape[0]):
                 for j in range(unique_pos.shape[1]):
                     approx.append([self.unique_points[i, 0], unique_pos[i, j]])
 
             self.approx = np.array(approx)
+            self.num_bl = file_count
             # Вызов метода построения таблицы
             self.table_builder()
 
@@ -200,10 +207,10 @@ class MainWindow(QMainWindow):
                 self.table.setItem(row, col, item)
 
     def adjustment(self):
-        """Метод, производящий уравнивание геодезической сети"""
+        """Метод, производящий формирование необходимых матриц и уравнивание геодезической сети"""
 
-        self.solid_approx = np.copy(self.approx)
-        self.rover_approx = []
+        self.all_approx = np.copy(self.approx)
+        self.find_approx = []
 
         # Цикл заменяет приближенные координаты опорных (отмеченных) пунктов в approx на введеные пользователем XYZ
         for i in range(self.unique_points.shape[0]):
@@ -217,24 +224,20 @@ class MainWindow(QMainWindow):
                 items = [self.table.item(i, 2), self.table.item(i, 3), self.table.item(i, 4)]
                 solid_pos = [items[0].text(), items[1].text(), items[2].text()]
 
-                # Замена значений в векторе приближенных координат всех пунктов и формирование вектора координат
-                # только роверов
+                # Замена значений в векторе приближенных координат всех пунктов
                 for j in range(3):
-                    self.solid_approx[3 * i + j, 1] = solid_pos[j]
+                    self.all_approx[3 * i + j, 1] = solid_pos[j]
 
-        # Создание матрицы с названий и приближенных координат только пунктов роверов
+        # Создание матрицы с названиями и приближенными координатами только пунктов-роверов
         # TODO Есть проблема в том, что если приближенные и опорные координаты совпадут, то строка не будет удалена
         for i in range(self.approx.shape[0]):
 
-            if self.approx[i, 1] == self.solid_approx[i, 1]:
-                self.rover_approx.append(self.approx[i])
+            if self.approx[i, 1] == self.all_approx[i, 1]:
+                self.find_approx.append(self.approx[i])
 
-        self.rover_approx = np.array(self.rover_approx)
-
-        print(self.approx)
-        print(self.solid_approx)
-        print(self.rover_approx)
-
+        self.find_approx = np.array(self.find_approx)
+        # Установка числа искомых пунктов
+        self.num_find = int(self.find_approx.shape[0] / 3)
 
         bl_comp = []
 
@@ -243,8 +246,50 @@ class MainWindow(QMainWindow):
             bl_comp.append(float(self.input_array[i, 3]) - float(self.input_array[i, 1]))
 
         bl_comp = np.array(bl_comp)
-        # print(bl_comp)
 
+        # Создание матрицы коэффициентов arr_a
+        arr_a = np.zeros((3 * self.num_bl, 3 * self.num_find), dtype=int)
+
+        # Формирование матрицы коэффициентов arr_a
+        for i in range(self.num_find):
+            for j in range(self.num_bl):
+                for k in range(3):
+
+                    # Проверка соответствия имени искомого пункта с именами роверов в input_array
+                    if self.find_approx[3 * i, 0] == self.input_array[3 * j, 2]:
+                        arr_a[3 * j + k, 3 * i + k] = 1
+
+                    # Проверка соответствия имени искомого пункта с именами БС в input_array
+                    if self.find_approx[3 * i, 0] == self.input_array[3 * j, 0]:
+                        arr_a[3 * j + k, 3 * i + k] = -1
+
+        vec_bs = []
+        vec_rover = []
+
+        # Формирование векторов с приближенными координатами базовых станций и роверов в соответствии с матрице
+        # коэффициентов arr_a и матрицей input_array
+        for i in range(self.num_bl):
+
+            bl = self.input_array[3 * i, 0]
+            rover = self.input_array[3 * i, 2]
+
+            for j in range(self.num_points):
+
+                for k in range(3):
+
+                    if bl == self.all_approx[3 * j, 0]:
+                        vec_bs.append(self.all_approx[3 * j + k, 1])
+
+                    if rover == self.all_approx[3 * j, 0]:
+                        vec_rover.append(self.all_approx[3 * j + k, 1])
+
+        # Создание массивов numpy с приведением строковых элементов к типу float
+        vec_bs = np.array(list(map(float, vec_bs)))
+        vec_rover = np.array(list(map(float, vec_rover)))
+
+        # Вычисление вектора свободных членов arr_l и его транспонирование
+        arr_l = vec_rover - vec_bs - bl_comp
+        arr_l = arr_l.reshape(-1, 1)
 
 
 if __name__ == "__main__":
