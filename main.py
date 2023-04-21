@@ -2,6 +2,7 @@ import os
 import sys
 
 import numpy as np
+from math import sqrt
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget,
@@ -25,17 +26,23 @@ class MainWindow(QMainWindow):
         """Конструктор класса MainWindow (главного окна/виджета приложения)"""
         super().__init__()
 
-        # Инициализация необходимых массивов и векторов
+        # Инициализация массивов и векторов сырых данных
         self.input_array = None # Массив с входными данными из файлов
         self.unique_points = None # Вектор уникальных наименований пунктов
+        self.fix_pos = None # Массив уникальных наименований опорных пунктов и их координат
         self.approx = None # Массив с уникальными наименованиями пунктов и их приближенными координтами
         self.all_approx = None # Массив approx с заменой координат опорных точек
         self.find_approx = None # Массив approx без опорных точек
 
-        # Инициализация необходимых переменных
+        # Инициализация счетных переменных
         self.num_bl = None # Число базовых линий
         self.num_points = None # Число пунктов
         self.num_find = None # Число искомых пунктов
+
+        # Инициализация массивов и векторов процесса уравнивания
+        self.eq_x = None # Вектор уравненных координат пунктов
+        self.eq_v = None # Вектор уравненных измерений (компонентов БЛ)
+        self.m = None # СКП/СКО/Стандартное отклонение измерений
 
         # Установка названия главного окна приложения и изменение его размера
         self.setWindowTitle('Adjustment for RTKLIB')
@@ -44,7 +51,7 @@ class MainWindow(QMainWindow):
         # Создание и настройка пустой таблицы для данных пунктов
         self.table = QTableWidget()
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["Point", "Reference", "X", "Y", "Z"])
+        self.table.setHorizontalHeaderLabels(['Point', 'Fixed', 'X', 'Y', 'Z'])
         self.table.setColumnWidth(0, 70)
         self.table.setColumnWidth(1, 70)
 
@@ -89,7 +96,7 @@ class MainWindow(QMainWindow):
 
     def import_files(self):
         """Импорт файлов из выбранной директории и формирование таблицы и матриц исходных данных"""
-        directory = QFileDialog.getExistingDirectory(self, "Select Folder")
+        directory = QFileDialog.getExistingDirectory(self, 'Select Folder')
 
         # Выполняется, если была выбрана директория
         if directory:
@@ -137,7 +144,7 @@ class MainWindow(QMainWindow):
                     # Получение названий БС и ровера
                     for i in range(2):
                         line = path_lines[i]
-                        split_line = line.split("\\")
+                        split_line = line.split('\\')
                         file_name = split_line[-1]
                         point_name = file_name[:4]
                         points.append(point_name.upper())
@@ -198,12 +205,12 @@ class MainWindow(QMainWindow):
 
             # Создание, настройка отображения и установка в первый столбец виджетов чекбокса
             checkbox = QCheckBox()
-            checkbox.setStyleSheet("margin-left:auto; margin-right:auto;")
+            checkbox.setStyleSheet('margin-left:auto; margin-right:auto;')
             self.table.setCellWidget(row, 1, checkbox)
 
             # Заполнение 2-4 столбцов пустыми строками для ручного ввода координат опорных точек
             for col in range(2, 5):
-                item = QTableWidgetItem("")
+                item = QTableWidgetItem('')
                 self.table.setItem(row, col, item)
 
     def adjustment(self):
@@ -211,6 +218,7 @@ class MainWindow(QMainWindow):
 
         self.all_approx = np.copy(self.approx)
         self.find_approx = []
+        self.fix_pos = []
 
         # Цикл заменяет приближенные координаты опорных (отмеченных) пунктов в approx на введеные пользователем XYZ
         for i in range(self.unique_points.shape[0]):
@@ -220,9 +228,11 @@ class MainWindow(QMainWindow):
             # Проверка наличия чекбокса и его состояния
             if isinstance(checkbox, QCheckBox) and checkbox.isChecked():
 
-                # Извлечение введенных пользователем координат опорных пунктов
-                items = [self.table.item(i, 2), self.table.item(i, 3), self.table.item(i, 4)]
-                solid_pos = [items[0].text(), items[1].text(), items[2].text()]
+                # Извлечение введенных пользователем координат опорных пунктов и их имен
+                items = [self.table.item(i, 0), self.table.item(i, 2), self.table.item(i, 3), self.table.item(i, 4)]
+                fix = [items[0].text(), items[1].text(), items[2].text(), items[3].text()]
+                self.fix_pos.append(fix)
+                solid_pos = [fix[1], fix[2], fix[3]]
 
                 # Замена значений в векторе приближенных координат всех пунктов
                 for j in range(3):
@@ -274,7 +284,6 @@ class MainWindow(QMainWindow):
             rover = self.input_array[3 * i, 2]
 
             for j in range(self.num_points):
-
                 for k in range(3):
 
                     if bl == self.all_approx[3 * j, 0]:
@@ -288,11 +297,50 @@ class MainWindow(QMainWindow):
         vec_rover = np.array(list(map(float, vec_rover)))
 
         # Вычисление вектора свободных членов arr_l и его транспонирование
-        arr_l = vec_rover - vec_bs - bl_comp
-        arr_l = arr_l.reshape(-1, 1)
+        vec_l = vec_rover - vec_bs - bl_comp
+
+        # Составление нормальных уравнений
+        arr_r = np.dot(arr_a.transpose(), arr_a)
+        vec_b = np.dot(arr_a.transpose(), vec_l)
+
+        # Решение нормальных уравнений
+        vec_x = (-1) * np.dot(np.linalg.inv(arr_r), vec_b)
+
+        # Вычисление поправок к результатам измерений
+        vec_v = np.dot(arr_a, vec_x) + vec_l
+
+        # Вычисление уравненных координат
+        pos_x = self.find_approx[:, 1].astype(float)
+        self.eq_x = pos_x + vec_x
+
+        # Вычисление уравненных измерений
+        self.eq_v = bl_comp + vec_v
+
+        # Оценка точности
+        self.m = sqrt((np.dot(vec_v.transpose(), vec_v))/(3 * (self.num_bl - self.num_find)))
+
+        # Вызов метода отвечающего за вывод результатов уравнивания
+        self.export()
+
+    def export(self):
+
+        exp_arr = []
+        exp_arr.append('Fixed coordinates')
+        exp_arr.append(['Point name', 'X', 'Y', 'Z'])
+        exp_arr.append(self.fix_points)
+        exp_arr.append('Equalized coordinates')
+        exp_arr.append(['Point name', 'X', 'Y', 'Z'])
+        exp_arr.append([self.find_approx[:, 0], self.eq_x])
+        exp_arr.append('Equalized measurements')
+        exp_arr.append(['Base name', 'Rover name', 'X', 'Y', 'Z'])
+        exp_arr.append([self.input_array[0], self.input_array[2], self.eq_v])
+        exp_arr.append('Accuracy assessment')
+        exp_arr.append(f'СКП измерений = {self.m}')
+
+        print(exp_arr)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
