@@ -323,21 +323,50 @@ class MainWindow(QMainWindow):
         self.export()
 
     def export(self):
+        """Метод производит экспорт результатов уравнивания путем их вывода в файле формата txt"""
 
         exp_arr = []
-        exp_arr.append('Fixed coordinates')
+        exp_arr.append(['---Fixed coordinates---', '', '', ''])
         exp_arr.append(['Point name', 'X', 'Y', 'Z'])
-        exp_arr.append(self.fix_points)
-        exp_arr.append('Equalized coordinates')
-        exp_arr.append(['Point name', 'X', 'Y', 'Z'])
-        exp_arr.append([self.find_approx[:, 0], self.eq_x])
-        exp_arr.append('Equalized measurements')
-        exp_arr.append(['Base name', 'Rover name', 'X', 'Y', 'Z'])
-        exp_arr.append([self.input_array[0], self.input_array[2], self.eq_v])
-        exp_arr.append('Accuracy assessment')
-        exp_arr.append(f'СКП измерений = {self.m}')
 
-        print(exp_arr)
+        for i in range(int(self.num_points - self.num_find)):
+            exp_arr.append(self.fix_pos[i])
+
+        exp_arr.append(['', '', '', ''])
+        exp_arr.append(['---Equalized coordinates---', '', '', ''])
+        exp_arr.append(['Point name', 'X', 'Y', 'Z',])
+
+        for i in range(self.num_find):
+            arr = [self.find_approx[3 * i, 0], self.eq_x[3 * i], self.eq_x[3 * i + 1], self.eq_x[3 * i + 2]]
+            exp_arr.append(arr)
+
+        exp_arr.append(['', '', '', ''])
+        exp_arr.append(['---Equalized measurements---', '', '', ''])
+        exp_arr.append(['Base-Rover name', 'X', 'Y', 'Z'])
+
+        for i in range(self.num_bl):
+            bl_name = [[self.input_array[3 * i, 0], self.input_array[3 * i, 2]]]
+            bl_name = ['-'.join(row) for row in bl_name]
+            arr = [bl_name[0], self.eq_v[3 * i], self.eq_v[3 * i + 1], self.eq_v[3 * i + 2]]
+            exp_arr.append(arr)
+
+        exp_arr.append(['', '', '', ''])
+        exp_arr.append(['---Accuracy assessment---', '', '', ''])
+        exp_arr.append(['Standard deviation', '', '', ''])
+        exp_arr.append([self.m, '', '', ''])
+
+        exp_arr = np.array(exp_arr, dtype=str)
+        # Создание массива, который показывает где в массиве exp_arr находятся числовые строки
+        dot_indices = np.char.find(exp_arr, '.')
+
+        # Алгоритм округления чисел в массиве exp_arr до 4-х знаков после запятой
+        for i in range(exp_arr.shape[0]):
+            for j in range(exp_arr.shape[1]):
+                if dot_indices[i, j] != -1:
+                    exp_arr[i, j] = np.round(exp_arr[i, j].astype(float), 4)
+
+        # Сохранение результатов в result.txt
+        np.savetxt("result.txt", exp_arr, fmt="%-28s %-12s %-12s %-12s", delimiter="\t")
 
 
 if __name__ == '__main__':
