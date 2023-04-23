@@ -27,6 +27,8 @@ class MainWindow(QMainWindow):
         """Конструктор класса MainWindow (главного окна/виджета приложения)"""
         super().__init__()
 
+        self.directory = None
+
         # Инициализация массивов и векторов сырых данных
         self.input_array = None # Массив с входными данными из файлов
         self.unique_points = None # Вектор уникальных наименований пунктов
@@ -106,13 +108,15 @@ class MainWindow(QMainWindow):
 
     def import_files(self):
         """Импорт файлов из выбранной директории и формирование таблицы и матриц исходных данных"""
-        directory = QFileDialog.getExistingDirectory(self, 'Select Folder')
+        self.directory = QFileDialog.getExistingDirectory(self, 'Select Folder')
+
+        print(self.directory)
 
         # Выполняется, если была выбрана директория
-        if directory:
+        if self.directory:
 
             # Массив с именами файлов
-            files = os.listdir(directory)
+            files = os.listdir(self.directory)
             # Создание "нулевого" массива numpy с входными данными
             self.input_array = np.empty((3 * len(files), 4), dtype=object)
             # Создание массива с исходными данными о ковариации
@@ -124,7 +128,7 @@ class MainWindow(QMainWindow):
             for file in files:
 
                 # Конструкция для корректного закрытия файла после извлечения необходимой информации
-                with open(os.path.join(directory, file), 'r') as f:
+                with open(os.path.join(self.directory, file), 'r') as f:
 
                     file_count += 1
                     # Создание двух вспомогательных массивов
@@ -438,7 +442,7 @@ class MainWindow(QMainWindow):
                     exp_arr[i, j] = "{:.4f}".format(num)
 
         # Сохранение результатов в result.txt
-        np.savetxt("result.txt", exp_arr, fmt="%-28s %-12s %-12s %-12s", delimiter="\t")
+        np.savetxt(f'{self.directory}/result.txt', exp_arr, fmt="%-28s %-12s %-12s %-12s", delimiter="\t")
 
 
 if __name__ == '__main__':
