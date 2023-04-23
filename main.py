@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QFileDialog,
     QHBoxLayout,
+    QVBoxLayout,
     QLabel,
     QCheckBox,
     QTableWidget,
@@ -34,6 +35,11 @@ class MainWindow(QMainWindow):
         self.all_approx = None # Массив approx с заменой координат опорных точек
         self.find_approx = None # Массив approx без опорных точек
 
+        # Инициализация ковариационных и весовых матриц
+        self.std_elements = None
+        self.cov_elements = None
+        self.arr_p = None
+
         # Инициализация счетных переменных
         self.num_bl = None # Число базовых линий
         self.num_points = None # Число пунктов
@@ -45,47 +51,51 @@ class MainWindow(QMainWindow):
         self.m = None # СКП/СКО/Стандартное отклонение измерений
 
         # Установка названия главного окна приложения и изменение его размера
-        self.setWindowTitle('Adjustment for RTKLIB')
-        self.resize(950, 500)
+        self.setWindowTitle('Equalization for RTKLIB')
+        self.resize(600, 300)
 
         # Создание и настройка пустой таблицы для данных пунктов
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(['Point', 'Fixed', 'X', 'Y', 'Z'])
-        self.table.setColumnWidth(0, 70)
-        self.table.setColumnWidth(1, 70)
+        self.table.setColumnWidth(0, 50)
+        self.table.setColumnWidth(1, 50)
 
         # Создание кнопки "Import"
         self.import_button = QPushButton('Import')
         # Связь сигнала "clicked" со слотом "import_files" в объекте reader
         self.import_button.clicked.connect(self.import_files)
 
+        # Создание чекбокса для учета/неучета ковариации
+        self.cov_checkbox = QCheckBox('Covariation')
+
         # Создание кнопки "Adjust" и надписи "result_label"
-        self.adjust_button = QPushButton('Adjust')
+        self.adjust_button = QPushButton('Equalize')
         self.adjust_button.clicked.connect(self.adjustment)
-        self.result_label = QLabel('Result saved in...')
+        self.label = QLabel('Import *.pos files from the selected directory')
+        # Выравнивание result_label по верху
+        self.label.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # Установка флага отвечающего за перенос слов на другую строку
+        self.label.setWordWrap(True)
+        self.label.setMaximumWidth(150)
 
         # Создание второстепенных макетов
         point_layout = QHBoxLayout()
-        import_layout = QHBoxLayout()
-        network_layout = QHBoxLayout()
-        adjustment_layout = QHBoxLayout()
+        button_layout = QVBoxLayout()
+        button_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Добавление всех виджетов во второстепенные макеты
         point_layout.addWidget(self.table)
-        import_layout.addWidget(self.import_button)
-        adjustment_layout.addWidget(self.adjust_button)
-        adjustment_layout.addWidget(self.result_label)
+        button_layout.addWidget(self.import_button)
+        button_layout.addWidget(self.cov_checkbox)
+        button_layout.addWidget(self.adjust_button)
+        button_layout.addWidget(self.label)
 
         # Создание главного макета и его построение на основе второстепенных
         main_layout = QGridLayout()
         main_layout.addLayout(point_layout, 0, 0)
-        main_layout.addLayout(import_layout, 1, 0)
-        main_layout.addLayout(network_layout, 0, 1)
-        main_layout.addLayout(adjustment_layout, 1, 1)
-        # Уравнивание левых и правых виджетов в макете
-        main_layout.setColumnStretch(0, 1)
-        main_layout.setColumnStretch(1, 1)
+        main_layout.addLayout(button_layout, 0, 1)
+        main_layout.setColumnMinimumWidth(1, 150)
 
         # Создание главного виджета и установка главного макета
         main_widget = QWidget()
@@ -105,6 +115,8 @@ class MainWindow(QMainWindow):
             files = os.listdir(directory)
             # Создание "нулевого" массива numpy с входными данными
             self.input_array = np.empty((3 * len(files), 4), dtype=object)
+            # Создание массива с исходными данными о ковариации
+            self.std_elements = []
             # Счетчик количества импортированных файлов
             file_count = 0
 
@@ -138,8 +150,8 @@ class MainWindow(QMainWindow):
                     last_line = lines[-1].strip()
                     sll = last_line.split()  # split_last_line
                     measure = [sll[2], sll[3], sll[4]]
-                    # TODO Реализовать ковариацию
-                    covariation = [sll[7], sll[8], sll[9], sll[10], sll[11], sll[12]]
+
+                    self.std_elements.append([sll[7], sll[8], sll[9], sll[10], sll[11], sll[12]])
 
                     # Получение названий БС и ровера
                     for i in range(2):
@@ -187,8 +199,15 @@ class MainWindow(QMainWindow):
 
             self.approx = np.array(approx)
             self.num_bl = file_count
+            self.std_elements = np.array(self.std_elements)
+            # Приведение всего массива к float
+            self.std_elements = np.vectorize(float)(self.std_elements)
+
             # Вызов метода построения таблицы
             self.table_builder()
+
+            # Замена текста у QLabel
+            self.label.setText(f'Imported {file_count} files (baselines)')
 
     def table_builder(self):
         """Построение и настройка таблицы на основе импортированных данных"""
@@ -200,12 +219,13 @@ class MainWindow(QMainWindow):
 
             # Заполнение нулевого столбца названиями всех пунктов и отключение возможности их редактирования
             item = QTableWidgetItem(self.unique_points[row][0])
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, 0, item)
 
             # Создание, настройка отображения и установка в первый столбец виджетов чекбокса
             checkbox = QCheckBox()
-            checkbox.setStyleSheet('margin-left:auto; margin-right:auto;')
+            checkbox.setStyleSheet('margin-left:18;')
             self.table.setCellWidget(row, 1, checkbox)
 
             # Заполнение 2-4 столбцов пустыми строками для ручного ввода координат опорных точек
@@ -215,6 +235,12 @@ class MainWindow(QMainWindow):
 
     def adjustment(self):
         """Метод, производящий формирование необходимых матриц и уравнивание геодезической сети"""
+
+        self.arr_p = np.eye(3 * self.num_bl)
+
+        # Выполняется метод cov, если был отмечен чекбокс Covariation
+        if self.cov_checkbox.isChecked():
+            self.cov()
 
         self.all_approx = np.copy(self.approx)
         self.find_approx = []
@@ -300,8 +326,8 @@ class MainWindow(QMainWindow):
         vec_l = vec_rover - vec_bs - bl_comp
 
         # Составление нормальных уравнений
-        arr_r = np.dot(arr_a.transpose(), arr_a)
-        vec_b = np.dot(arr_a.transpose(), vec_l)
+        arr_r = np.dot(np.dot(arr_a.transpose(), self.arr_p), arr_a)
+        vec_b = np.dot(np.dot(arr_a.transpose(), self.arr_p), vec_l)
 
         # Решение нормальных уравнений
         vec_x = (-1) * np.dot(np.linalg.inv(arr_r), vec_b)
@@ -317,10 +343,55 @@ class MainWindow(QMainWindow):
         self.eq_v = bl_comp + vec_v
 
         # Оценка точности
-        self.m = sqrt((np.dot(vec_v.transpose(), vec_v))/(3 * (self.num_bl - self.num_find)))
+        self.m = sqrt((np.dot(np.dot(vec_v.transpose(), self.arr_p), vec_v))/(3 * (self.num_bl - self.num_find)))
 
         # Вызов метода отвечающего за вывод результатов уравнивания
         self.export()
+
+        # Замена текста в Qlabel
+        self.label.setText('The results of the network equalization are saved in result.txt')
+
+    def cov(self):
+        """Метод работает с данными ковариации и формирует необходимые весовые матрицы"""
+
+        self.cov_elements = np.copy(self.std_elements)
+
+        # Восстановление ковариационной матрицы с сохранением знака '-'
+        for i in range(self.num_bl):
+            for j in range(6):
+                if self.cov_elements[i, j] < 0:
+                    self.cov_elements[i, j] = (-1) * (self.cov_elements[i, j] ** 2)
+                else:
+                    self.cov_elements[i, j] = self.cov_elements[i, j] ** 2
+
+        # Элемент нормирования весовых коэффициентов
+        mu = self.std_elements[0, 0]
+
+        # Поиск наименьшего нормирующего значения mu
+        for i in range(self.num_bl):
+            for j in range(3):
+                if self.std_elements[i, j] < mu:
+                    mu = self.std_elements[i, j]
+
+        for i in range(self.num_bl):
+
+            sqrt_wt = np.zeros((3, 3))
+
+            for j in range(3):
+                sqrt_wt[j, j] = sqrt((mu ** 2) / self.cov_elements[i, j])
+
+            correlation = np.eye(3)
+            correlation[0, 1] = self.cov_elements[i, 3] / sqrt(self.cov_elements[i, 0] * self.cov_elements[i, 1])
+            correlation[1, 2] = self.cov_elements[i, 4] / sqrt(self.cov_elements[i, 1] * self.cov_elements[i, 2])
+            correlation[0, 2] = self.cov_elements[i, 5] / sqrt(self.cov_elements[i, 2] * self.cov_elements[i, 0])
+            correlation[1, 0] = correlation[0, 1]
+            correlation[2, 1] = correlation[1, 2]
+            correlation[2, 0] = correlation[0, 2]
+
+            bl_wt = np.dot(np.dot(sqrt_wt, correlation), sqrt_wt)
+
+            for j in range(3):
+                self.arr_p[3 * i + j, 3 * i + j] = bl_wt[j, j]
 
     def export(self):
         """Метод производит экспорт результатов уравнивания путем их вывода в файле формата txt"""
@@ -363,7 +434,8 @@ class MainWindow(QMainWindow):
         for i in range(exp_arr.shape[0]):
             for j in range(exp_arr.shape[1]):
                 if dot_indices[i, j] != -1:
-                    exp_arr[i, j] = np.round(exp_arr[i, j].astype(float), 4)
+                    num = np.round(exp_arr[i, j].astype(float), 4)
+                    exp_arr[i, j] = "{:.4f}".format(num)
 
         # Сохранение результатов в result.txt
         np.savetxt("result.txt", exp_arr, fmt="%-28s %-12s %-12s %-12s", delimiter="\t")
