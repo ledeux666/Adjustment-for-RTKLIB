@@ -40,6 +40,7 @@ class MainWindow(QMainWindow):
         # Инициализация ковариационных и весовых матриц
         self.std_elements = None
         self.cov_elements = None
+        self.arr_cov = None
         self.arr_p = None
 
         # Инициализация счетных переменных
@@ -359,6 +360,7 @@ class MainWindow(QMainWindow):
         """Метод работает с данными ковариации и формирует необходимые весовые матрицы"""
 
         self.cov_elements = np.copy(self.std_elements)
+        self.arr_cov = np.zeros((3 * self.num_bl, 3 * self.num_bl))
 
         # Восстановление ковариационной матрицы с сохранением знака '-'
         for i in range(self.num_bl):
@@ -368,34 +370,21 @@ class MainWindow(QMainWindow):
                 else:
                     self.cov_elements[i, j] = self.cov_elements[i, j] ** 2
 
-        # Элемент нормирования весовых коэффициентов
-        mu = self.std_elements[0, 0]
+            # Создание общей ковариационной матрицы компонентов всех БЛ
+            self.arr_cov[3 * i + 0, 3 * i + 0] = self.cov_elements[i, 0]
+            self.arr_cov[3 * i + 1, 3 * i + 1] = self.cov_elements[i, 1]
+            self.arr_cov[3 * i + 2, 3 * i + 2] = self.cov_elements[i, 2]
+            self.arr_cov[3 * i + 0, 3 * i + 1] = self.cov_elements[i, 3]
+            self.arr_cov[3 * i + 1, 3 * i + 2] = self.cov_elements[i, 4]
+            self.arr_cov[3 * i + 0, 3 * i + 2] = self.cov_elements[i, 5]
+            self.arr_cov[3 * i + 1, 3 * i + 0] = self.arr_cov[3 * i + 0, 3 * i + 1]
+            self.arr_cov[3 * i + 2, 3 * i + 1] = self.arr_cov[3 * i + 1, 3 * i + 2]
+            self.arr_cov[3 * i + 2, 3 * i + 0] = self.arr_cov[3 * i + 0, 3 * i + 2]
 
-        # Поиск наименьшего нормирующего значения mu
-        for i in range(self.num_bl):
-            for j in range(3):
-                if self.std_elements[i, j] < mu:
-                    mu = self.std_elements[i, j]
+        # Весовая матрица, получаемая обращением общей ковариацонной матрицы
+        self.arr_p = np.linalg.inv(self.arr_cov)
 
-        for i in range(self.num_bl):
-
-            sqrt_wt = np.zeros((3, 3))
-
-            for j in range(3):
-                sqrt_wt[j, j] = sqrt((mu ** 2) / self.cov_elements[i, j])
-
-            correlation = np.eye(3)
-            correlation[0, 1] = self.cov_elements[i, 3] / sqrt(self.cov_elements[i, 0] * self.cov_elements[i, 1])
-            correlation[1, 2] = self.cov_elements[i, 4] / sqrt(self.cov_elements[i, 1] * self.cov_elements[i, 2])
-            correlation[0, 2] = self.cov_elements[i, 5] / sqrt(self.cov_elements[i, 2] * self.cov_elements[i, 0])
-            correlation[1, 0] = correlation[0, 1]
-            correlation[2, 1] = correlation[1, 2]
-            correlation[2, 0] = correlation[0, 2]
-
-            bl_wt = np.dot(np.dot(sqrt_wt, correlation), sqrt_wt)
-
-            for j in range(3):
-                self.arr_p[3 * i + j, 3 * i + j] = bl_wt[j, j]
+        print(self.arr_p)
 
     def export(self):
         """Метод производит экспорт результатов уравнивания путем их вывода в файле формата txt"""
