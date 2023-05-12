@@ -5,6 +5,7 @@ import numpy as np
 import datetime
 from math import sqrt
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QWidget,
     QApplication,
@@ -114,6 +115,9 @@ class MainWindow(QMainWindow):
 
         # Установка центрального виджета окна
         self.setCentralWidget(main_widget)
+
+        # Установка иконки заголовка окна
+        QApplication.setWindowIcon(QIcon('icon.ico'))
 
     def import_files(self):
         """Импорт файлов из выбранной директории и формирование таблицы и матриц исходных данных"""
@@ -253,6 +257,8 @@ class MainWindow(QMainWindow):
         if self.cov_checkbox.isChecked():
             self.is_cov = True
             self.cov()
+        else:
+            self.is_cov = False
 
         self.all_approx = np.copy(self.approx)
         self.find_approx = []
