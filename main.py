@@ -55,8 +55,11 @@ class MainWindow(QMainWindow):
         self.vec_v = None # Вектор поправко в измерения
         self.eq_x = None # Вектор уравненных координат пунктов
         self.eq_v = None # Вектор уравненных измерений (компонентов БЛ)
-        self.m = None # СКП/СКО/Стандартное отклонение измерений
-        self.mp = None # СКП/СКО/Стандартное отклонение единицы веса
+
+        # Инициализация переменных, массивов и векторов оценки точности
+        self.mu = None # СКП/СКО/Стандартное отклонение
+        self.cov_x = None # Матрица оценки точности поправок в координаты
+        self.cov_v = None # Матрица оценки точности поправок в компоненты БЛ
 
         # Установка названия главного окна приложения и изменение его размера
         self.setWindowTitle('Equalization for RTKLIB')
@@ -335,11 +338,11 @@ class MainWindow(QMainWindow):
         vec_l = vec_rover - vec_bs - bl_comp
 
         # Составление нормальных уравнений
-        arr_r = np.dot(np.dot(arr_a.transpose(), self.arr_p), arr_a)
+        arr_n = np.dot(np.dot(arr_a.transpose(), self.arr_p), arr_a)
         vec_b = np.dot(np.dot(arr_a.transpose(), self.arr_p), vec_l)
 
-        # Решение нормальных уравнений
-        self.vec_x = (-1) * np.dot(np.linalg.inv(arr_r), vec_b)
+        # Получение обратной матрицы для оценки точности и решение нормальных уравнений
+        self.vec_x = (-1) * np.dot(np.linalg.inv(arr_n), vec_b)
 
         # Вычисление поправок к результатам измерений
         self.vec_v = np.dot(arr_a, self.vec_x) + vec_l
@@ -352,11 +355,11 @@ class MainWindow(QMainWindow):
         self.eq_v = bl_comp + self.vec_v
 
         # СКП измерений
-        self.m = sqrt((np.dot(np.dot(self.vec_v.transpose(), self.arr_p), self.vec_v)) / (self.num_bl - self.num_find))
+        self.mu = sqrt((np.dot(np.dot(self.vec_v.transpose(), self.arr_p), self.vec_v)) / (self.num_bl - self.num_find))
 
-        # СКП единицы веса
-        self.mp = sqrt(
-            (np.dot(np.dot(self.vec_v.transpose(), self.arr_p), self.vec_v)) / (3 * (self.num_bl - self.num_find)))
+        # Ковариационные матрицы оценки точности поправок в координаты и в компоненты БЛ
+        self.cov_x = (self.mu ** 2) * np.linalg.inv(arr_n)
+        self.cov_v = (self.mu ** 2) * np.dot(arr_a, np.dot(np.linalg.inv(arr_n), arr_a.transpose()))
 
         # Вызов метода отвечающего за вывод результатов уравнивания
         self.export()
@@ -389,59 +392,55 @@ class MainWindow(QMainWindow):
             self.arr_cov[3 * i + 2, 3 * i + 1] = self.cov_elements[i, 4]
             self.arr_cov[3 * i + 2, 3 * i + 0] = self.cov_elements[i, 5]
 
-        # Нормализация ковариационной матрицы
-        norm_factor = np.trace(self.arr_cov) / self.arr_cov.shape[0]
-        self.arr_cov = self.arr_cov / norm_factor
-
-        # Весовая матрица, получаемая путем обращения ковариацонной матрицы
-        self.arr_p = np.linalg.inv(self.arr_cov)
-
-        # Нормирование весовой матрицы
-        self.arr_p = self.arr_p / np.trace(self.arr_p)
+        # Обратная ковариационная матрица без дисперсии начальных данных
+        arr_p = np.linalg.inv(self.arr_cov)
+        self.arr_p = arr_p / arr_p[0, 0]
 
     def export(self):
         """Метод производит экспорт результатов уравнивания путем их вывода в файле формата txt"""
 
         exp_arr = []
+        empty_string = ['', '', '', '', '', '', '', '', '', '']
 
         now = datetime.datetime.now()
         now = now.strftime("%Y-%m-%d %H:%M:%S")
 
-        exp_arr.append([now, '', '', '', '', '', ''])
-        exp_arr.append([f'Covariance = {self.is_cov}', '', '', '', '', '', ''])
-        exp_arr.append(['', '', '', '', '', '', ''])
+        exp_arr.append([now, '', '', '', '', '', '', '', '', ''])
+        exp_arr.append([f'Covariance = {self.is_cov}', '', '', '', '', '', '', '', '', ''])
 
-        exp_arr.append(['---Fixed coordinates---', '', '', '', '', '', ''])
-        exp_arr.append(['Point name', 'X', 'Y', 'Z', '', '', ''])
+        exp_arr.append(empty_string)
+        exp_arr.append(['---Accuracy evaluation---', '', '', '', '', '', '', '', '', ''])
+        exp_arr.append(['Value name', 'Value', '', '', '', '', '', '', '', ''])
+        exp_arr.append(['Standard dev', self.mu, '', '', '', '', '', '', '', ''])
+
+        exp_arr.append(empty_string)
+        exp_arr.append(['---Fixed pos---', '', '', '', '', '', '', '', '', ''])
+        exp_arr.append(['Point name', 'X', 'Y', 'Z', '', '', '', '', '', ''])
 
         for i in range(int(self.num_points - self.num_find)):
-            exp_arr.append(np.concatenate([self.fix_pos[i], ['', '', '']]))
+            exp_arr.append(np.concatenate([self.fix_pos[i], ['', '', '', '', '', '']]))
 
-        exp_arr.append(['', '', '', '', '', '', ''])
-        exp_arr.append(['---Equalized coordinates---', '', '', '', '', '', ''])
-        exp_arr.append(['Point name', 'X', 'Y', 'Z', 'dX', 'dY', 'dZ'])
+        exp_arr.append(empty_string)
+        exp_arr.append(['---Equalized coordinates---', '', '', '', '', '', '', '', '', ''])
+        exp_arr.append(['Point name', 'X', 'Y', 'Z', 'dX', 'dY', 'dZ', 'mX', 'mY', 'mZ'])
 
         for i in range(self.num_find):
             arr = [self.find_approx[3 * i, 0], self.eq_x[3 * i], self.eq_x[3 * i + 1], self.eq_x[3 * i + 2],
-                   self.vec_x[3 * i], self.vec_x[3 * i + 1], self.vec_x[3 * i + 2]]
+                   self.vec_x[3 * i], self.vec_x[3 * i + 1], self.vec_x[3 * i + 2],
+                   self.cov_x[3 * i + 0, 3 * i + 0], self.cov_x[3 * i + 1, 3 * i + 1], self.cov_x[3 * i + 2, 3 * i + 2]]
             exp_arr.append(arr)
 
-        exp_arr.append(['', '', '', '', '', '', ''])
-        exp_arr.append(['---Equalized measurements---', '', '', '', '', '', ''])
-        exp_arr.append(['Base-Rover name', 'X', 'Y', 'Z', 'dX', 'dY', 'dZ'])
+        exp_arr.append(empty_string)
+        exp_arr.append(['---Equalized measurements---', '', '', '', '', '', '', '', '', ''])
+        exp_arr.append(['Baseline name', 'X', 'Y', 'Z', 'dX', 'dY', 'dZ', 'mX', 'mY', 'mZ'])
 
         for i in range(self.num_bl):
             bl_name = [[self.input_array[3 * i, 0], self.input_array[3 * i, 2]]]
             bl_name = ['-'.join(row) for row in bl_name]
             arr = [bl_name[0], self.eq_v[3 * i], self.eq_v[3 * i + 1], self.eq_v[3 * i + 2],
-                   self.vec_v[3 * i], self.vec_v[3 * i + 1], self.vec_v[3 * i + 2]]
+                   self.vec_v[3 * i], self.vec_v[3 * i + 1], self.vec_v[3 * i + 2],
+                   self.cov_v[3 * i + 0, 3 * i + 0], self.cov_v[3 * i + 1, 3 * i + 1], self.cov_v[3 * i + 2, 3 * i + 2]]
             exp_arr.append(arr)
-
-        exp_arr.append(['', '', '', '', '', '', ''])
-        exp_arr.append(['---Accuracy assessment---', '', '', '', '', '', ''])
-        exp_arr.append(['Value name', 'Value', '', '', '', '', ''])
-        exp_arr.append(['STD of measurements', self.m, '', '', '', '', ''])
-        exp_arr.append(['STD of unit weight', self.mp, '', '', '', '', ''])
 
         exp_arr = np.array(exp_arr, dtype=str)
         # Создание массива, который показывает где в массиве exp_arr находятся числовые строки
@@ -456,7 +455,7 @@ class MainWindow(QMainWindow):
 
         # Сохранение результатов в result.txt
         np.savetxt(f'{self.directory}/result.txt', exp_arr,
-                   fmt="%-28s %-13s %-13s %-13s %-8s %-8s %-8s", delimiter="\t")
+                   fmt="%-15s %-13s %-13s %-15s %-8s %-8s %-10s %-8s %-8s %-8s", delimiter="\t")
 
 
 if __name__ == '__main__':
