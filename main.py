@@ -5,7 +5,7 @@ import numpy as np
 import datetime
 from math import sqrt
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QWidget,
     QApplication,
@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
         self.cov_v = None # Матрица оценки точности поправок в компоненты БЛ
 
         # Установка названия главного окна приложения и изменение его размера
-        self.setWindowTitle('Equalization for RTKLIB')
+        self.setWindowTitle('Adjustment for RTKLIB')
         self.resize(600, 300)
 
         # Создание и настройка пустой таблицы для данных пунктов
@@ -82,7 +82,7 @@ class MainWindow(QMainWindow):
         self.cov_checkbox = QCheckBox('Covariation')
 
         # Создание кнопки "Adjust" и надписи "result_label"
-        self.adjust_button = QPushButton('Equalize')
+        self.adjust_button = QPushButton('Adjust')
         self.adjust_button.clicked.connect(self.adjustment)
         self.label = QLabel('Import *.pos files from the selected directory')
         # Выравнивание result_label по верху
@@ -400,7 +400,8 @@ class MainWindow(QMainWindow):
 
         # Обратная ковариационная матрица без дисперсии начальных данных
         arr_p = np.linalg.inv(self.arr_cov)
-        self.arr_p = arr_p / arr_p[0, 0]
+        norm = np.trace(arr_p) / arr_p.shape[0]
+        self.arr_p = arr_p / norm
 
     def export(self):
         """Метод производит экспорт результатов уравнивания путем их вывода в файле формата txt"""
@@ -427,7 +428,7 @@ class MainWindow(QMainWindow):
             exp_arr.append(np.concatenate([self.fix_pos[i], ['', '', '', '', '', '']]))
 
         exp_arr.append(empty_string)
-        exp_arr.append(['---Equalized coordinates---', '', '', '', '', '', '', '', '', ''])
+        exp_arr.append(['---Adjusted coordinates---', '', '', '', '', '', '', '', '', ''])
         exp_arr.append(['Point name', 'X', 'Y', 'Z', 'dX', 'dY', 'dZ', 'mX', 'mY', 'mZ'])
 
         for i in range(self.num_find):
@@ -437,7 +438,7 @@ class MainWindow(QMainWindow):
             exp_arr.append(arr)
 
         exp_arr.append(empty_string)
-        exp_arr.append(['---Equalized measurements---', '', '', '', '', '', '', '', '', ''])
+        exp_arr.append(['---Adjusted measurements---', '', '', '', '', '', '', '', '', ''])
         exp_arr.append(['Baseline name', 'X', 'Y', 'Z', 'dX', 'dY', 'dZ', 'mX', 'mY', 'mZ'])
 
         for i in range(self.num_bl):
